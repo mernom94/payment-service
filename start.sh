@@ -1,5 +1,5 @@
 #!/bin/bash
-alembic upgrade head &
+alembic upgrade head 
 python worker_payment.py &
 python worker_webhook.py &
 python worker_reconciliation.py &
