@@ -102,6 +102,16 @@ class Settings(BaseSettings):
         if v not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}")
         return v
+    
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def fix_database_url(cls, v: str) -> str:
+        v = str(v)
+        if v.startswith("postgres://"):
+            v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+        if v.startswith("postgresql://"):
+            v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
 
 @lru_cache
