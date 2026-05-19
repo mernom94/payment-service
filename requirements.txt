@@ -1,0 +1,40 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.30
+asyncpg==0.29.0
+alembic==1.13.1
+# aiosqlite removed — tests now run against PostgreSQL exclusively
+
+# Redis
+redis[hiredis]==5.0.4
+
+# HTTP client (bunq API)
+httpx==0.27.0
+
+# Settings
+pydantic==2.7.1
+pydantic-settings==2.3.0
+
+# Cryptography (bunq RSA keypair)
+cryptography==42.0.8
+
+# Structured logging
+structlog==24.2.0
+
+# Observability
+prometheus-client==0.20.0
+opentelemetry-sdk==1.24.0
+opentelemetry-exporter-otlp==1.24.0
+opentelemetry-exporter-otlp-proto-grpc==1.24.0
+
+# Testing
+pytest==8.2.0
+pytest-asyncio==0.23.7
+pytest-cov==5.0.0
+
+# Dev tools
+python-dotenv==1.0.1
