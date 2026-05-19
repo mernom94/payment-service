@@ -1,0 +1,108 @@
+databases:
+  - name: portfolio-postgres
+    plan: free
+    region: frankfurt
+
+services:
+  - type: keyvalue
+    name: portfolio-redis
+    plan: free
+    region: frankfurt
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: payment-service
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    preDeployCommand: alembic upgrade head
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: portfolio-redis
+          property: connectionString
+      - key: BUNQ_API_KEY
+        sync: false
+      - key: BUNQ_ENVIRONMENT
+        value: SANDBOX
+      - key: API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: '["*"]'
+
+  - type: worker
+    name: payment-worker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker_payment.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: portfolio-redis
+          property: connectionString
+      - key: BUNQ_API_KEY
+        sync: false
+      - key: BUNQ_ENVIRONMENT
+        value: SANDBOX
+      - key: API_KEY
+        sync: false
+
+  - type: worker
+    name: webhook-worker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker_webhook.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: portfolio-redis
+          property: connectionString
+      - key: BUNQ_API_KEY
+        sync: false
+      - key: BUNQ_ENVIRONMENT
+        value: SANDBOX
+      - key: API_KEY
+        sync: false
+
+  - type: worker
+    name: reconciliation-worker
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python worker_reconciliation.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: portfolio-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: portfolio-redis
+          property: connectionString
+      - key: BUNQ_API_KEY
+        sync: false
+      - key: BUNQ_ENVIRONMENT
+        value: SANDBOX
+      - key: API_KEY
+        sync: false
