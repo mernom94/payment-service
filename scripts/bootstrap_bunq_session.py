@@ -1,93 +1,72 @@
 """
-Render-safe Bunq bootstrap script (idempotent + gated).
+scripts/bootstrap_bunq_session.py — Standalone bunq sandbox session bootstrap.
 
-Behavior:
-- If RUN_BUNQ_BOOTSTRAP != "true": exit safely (no-op)
-- If Redis already has session: reuse it
-- Otherwise: perform full Bunq bootstrap ONCE and persist session
+Run this once before starting the application to establish and persist
+the bunq sandbox session. Useful for CI pipelines and fresh deployments
+where you want to verify connectivity before the full service starts.
 
-This prevents Render redeploys from breaking Bunq device registration.
+Usage:
+    python scripts/bootstrap_bunq_session.py
+
+Environment variables required:
+    BUNQ_API_KEY      — bunq sandbox API key
+    DATABASE_URL      — PostgreSQL connection string
+    REDIS_URL         — Redis connection string
+
+Exit codes:
+    0 — Session bootstrapped successfully.
+    1 — Authentication failed (check BUNQ_API_KEY and network access).
 """
 
 import asyncio
 import logging
-import os
 import sys
 
+# Ensure the project root is on PYTHONPATH when running this script directly.
 sys.path.insert(0, ".")
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.infrastructure.bunq.session_manager import BunqSessionManager
 from app.infrastructure.db.session import close_db, init_db
-from app.infrastructure.redis.client import close_redis, init_redis, get_redis_client
+from app.infrastructure.redis.client import close_redis, init_redis
 
 configure_logging()
 logger = logging.getLogger(__name__)
 
-SESSION_KEY = "bunq:session_token"
-
 
 async def main() -> int:
     logger.info(
-        "bootstrap.started",
-        extra={"env": get_settings().BUNQ_ENVIRONMENT},
+        "bootstrap.started", extra={"environment": get_settings().BUNQ_ENVIRONMENT}
     )
 
-    # ---------------------------------------------------------
-    # 0. Render-safe gate (CRITICAL for free tier)
-    # ---------------------------------------------------------
-    if os.getenv("RUN_BUNQ_BOOTSTRAP") != "true":
-        logger.info("bootstrap.skipped.env_gate_not_set")
-        print("Skipping Bunq bootstrap (RUN_BUNQ_BOOTSTRAP not set)")
-        return 0
-
     if not get_settings().BUNQ_API_KEY:
-        logger.error("BUNQ_API_KEY missing")
+        logger.error(
+            "BUNQ_API_KEY is not set. "
+            "Generate a sandbox API key at https://www.bunq.com/en/sandbox"
+        )
         return 1
 
     try:
         await init_db()
         await init_redis()
 
-        redis = get_redis_client()
-
-        # ---------------------------------------------------------
-        # 1. Reuse existing session if available
-        # ---------------------------------------------------------
-        existing = await redis.get(SESSION_KEY)
-
-        if existing:
-            logger.info("bunq.session.reused")
-            print("✔ Bunq session already exists in Redis")
-            return 0
-
-        # ---------------------------------------------------------
-        # 2. Perform bootstrap only if missing
-        # ---------------------------------------------------------
-        logger.warning("bunq.session.missing_bootstrap_starting")
-
         manager = BunqSessionManager()
         token = await manager.bootstrap()
 
-        if not token:
-            raise RuntimeError("Bootstrap returned empty token")
-
-        await redis.set(SESSION_KEY, token)
-
+        # Mask most of the token for log safety.
         masked = token[:6] + "..." + token[-4:] if len(token) > 10 else "***"
-
         logger.info(
             "bootstrap.success",
             extra={"session_token_preview": masked},
         )
-
-        print(f"✔ Bunq session created: {masked}")
+        print(f"bunq sandbox session established. Token: {masked}")
+        print("You can now start the application with: uvicorn main:app --reload\n")
         return 0
 
     except Exception as exc:
         logger.error("bootstrap.failed", extra={"error": str(exc)}, exc_info=True)
-        print(f"Bootstrap failed: {exc}", file=sys.stderr)
+        print(f"Bootstrap failed: {exc}\n", file=sys.stderr)
         return 1
 
     finally:
