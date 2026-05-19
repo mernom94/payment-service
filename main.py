@@ -90,7 +90,7 @@ app = FastAPI(
 # CORSMiddleware is Starlette's own; it is exempt from the BaseHTTPMiddleware ban.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=["https://backend-portfolio-two-ebon.vercel.app/"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
