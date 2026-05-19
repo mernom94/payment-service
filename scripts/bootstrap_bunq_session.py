@@ -1,17 +1,17 @@
 """
-scripts/bootstrap_bunq_session.py — Bunq sandbox session bootstrap (idempotent).
+Render-safe Bunq bootstrap script (idempotent + gated).
 
-This script is SAFE for production deployments (e.g. Render) because it:
-- Reuses existing session from Redis if available
-- Only performs full bootstrap if no session exists
+Behavior:
+- If RUN_BUNQ_BOOTSTRAP != "true": exit safely (no-op)
+- If Redis already has session: reuse it
+- Otherwise: perform full Bunq bootstrap ONCE and persist session
 
-Recommended usage:
-    - Run manually once (local or admin action)
-    - NOT as part of every deploy startup
+This prevents Render redeploys from breaking Bunq device registration.
 """
 
 import asyncio
 import logging
+import os
 import sys
 
 sys.path.insert(0, ".")
@@ -25,18 +25,25 @@ from app.infrastructure.redis.client import close_redis, init_redis, get_redis_c
 configure_logging()
 logger = logging.getLogger(__name__)
 
-
 SESSION_KEY = "bunq:session_token"
 
 
 async def main() -> int:
     logger.info(
         "bootstrap.started",
-        extra={"environment": get_settings().BUNQ_ENVIRONMENT},
+        extra={"env": get_settings().BUNQ_ENVIRONMENT},
     )
 
+    # ---------------------------------------------------------
+    # 0. Render-safe gate (CRITICAL for free tier)
+    # ---------------------------------------------------------
+    if os.getenv("RUN_BUNQ_BOOTSTRAP") != "true":
+        logger.info("bootstrap.skipped.env_gate_not_set")
+        print("Skipping Bunq bootstrap (RUN_BUNQ_BOOTSTRAP not set)")
+        return 0
+
     if not get_settings().BUNQ_API_KEY:
-        logger.error("BUNQ_API_KEY is not set")
+        logger.error("BUNQ_API_KEY missing")
         return 1
 
     try:
@@ -46,25 +53,25 @@ async def main() -> int:
         redis = get_redis_client()
 
         # ---------------------------------------------------------
-        # 1. Try reuse existing session (CRITICAL FOR RENDER)
+        # 1. Reuse existing session if available
         # ---------------------------------------------------------
-        existing_token = await redis.get(SESSION_KEY)
+        existing = await redis.get(SESSION_KEY)
 
-        if existing_token:
+        if existing:
             logger.info("bunq.session.reused")
-            print("✔ Using existing Bunq session (no bootstrap needed)")
+            print("✔ Bunq session already exists in Redis")
             return 0
 
         # ---------------------------------------------------------
-        # 2. Only bootstrap if missing
+        # 2. Perform bootstrap only if missing
         # ---------------------------------------------------------
-        logger.warning("bunq.session.missing_bootstrap_required")
+        logger.warning("bunq.session.missing_bootstrap_starting")
 
         manager = BunqSessionManager()
         token = await manager.bootstrap()
 
         if not token:
-            raise RuntimeError("Bootstrap returned empty session token")
+            raise RuntimeError("Bootstrap returned empty token")
 
         await redis.set(SESSION_KEY, token)
 
@@ -75,7 +82,7 @@ async def main() -> int:
             extra={"session_token_preview": masked},
         )
 
-        print(f"✔ Bunq session established: {masked}")
+        print(f"✔ Bunq session created: {masked}")
         return 0
 
     except Exception as exc:
